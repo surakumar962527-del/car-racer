@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>3D Car Racer</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101827;font-family:system-ui,Arial;color:white;touch-action:none}
+canvas{display:block}#hud{position:fixed;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;z-index:3;font-weight:800;text-shadow:0 2px 5px #000}
+.pill{background:#07111dcc;padding:9px 13px;border:1px solid #ffffff35;border-radius:14px}
+#help{position:fixed;top:58px;left:12px;z-index:3;font-size:12px;color:#e5e7eb;text-shadow:0 1px 4px #000}
+#controls{position:fixed;bottom:18px;left:0;right:0;display:flex;justify-content:space-between;padding:0 22px;z-index:4}
+.ctrl{width:76px;height:76px;border-radius:22px;border:1px solid #ffffff70;background:#07111dcc;color:white;font-size:30px;font-weight:900;box-shadow:0 5px 18px #0007}
+#overlay{position:fixed;inset:0;background:#07111dbb;display:flex;align-items:center;justify-content:center;z-index:5;padding:22px}
+.panel{width:min(390px,100%);background:#101d30;border:1px solid #ffffff30;border-radius:24px;padding:24px;text-align:center;box-shadow:0 15px 50px #0008}
+.panel h1{margin:0 0 8px;font-size:30px}.panel p{color:#cbd5e1;line-height:1.5}
+#start{background:#22c55e;color:#06210e;border:0;border-radius:14px;padding:14px 28px;font-size:18px;font-weight:900;width:100%}
+.small{font-size:12px;color:#94a3b8}
+</style>
+</head>
+<body>
+<div id="hud"><div class="pill">🏁 SCORE: <span id="score">0</span></div><div class="pill">⚡ SPEED: <span id="speed">0</span></div></div>
+<div id="help">Touch ◀ ▶ to steer • Avoid other cars</div>
+<div id="controls"><button class="ctrl" id="left" aria-label="Left">◀</button><button class="ctrl" id="right" aria-label="Right">▶</button></div>
+<div id="overlay"><div class="panel"><h1>🏎️ 3D CAR RACER</h1><p>Traffic se bachkar jitni door ho sake drive karo. Car ko left-right karne ke liye buttons dabao.</p><button id="start">START RACE</button><p class="small">Mobile browser game • Landscape mode works best</p></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
+<script>
+(() => {
+const overlay=document.getElementById('overlay'), scoreEl=document.getElementById('score'), speedEl=document.getElementById('speed');
+let scene,camera,renderer,player,road,lines=[],traffic=[],trees=[],running=false,score=0,speed=22,last=0,spawn=0,steer=0;
+const mat=(c)=>new THREE.MeshStandardMaterial({color:c,roughness:.75});
+const asphalt=mat(0x30343b), white=mat(0xffffff), grass=mat(0x247a3b), red=mat(0xe53935), blue=mat(0x2196f3), black=mat(0x111827), glass=mat(0x83d6ed), yellow=mat(0xffd54f);
+function box(w,h,d,m,x,y,z){let o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);o.position.set(x,y,z);scene.add(o);return o}
+function makeCar(color){
+ const g=new THREE.Group(), body=new THREE.Mesh(new THREE.BoxGeometry(1.45,.48,2.5),mat(color));body.position.y=.55;g.add(body);
+ const cabin=new THREE.Mesh(new THREE.BoxGeometry(1.05,.58,1.15),glass);cabin.position.set(0,1.02,-.12);g.add(cabin);
+ for(let x of [-.78,.78])for(let z of [-.82,.82]){let w=new THREE.Mesh(new THREE.BoxGeometry(.22,.48,.48),black);w.position.set(x,.34,z);g.add(w)}
+ let bumper=new THREE.Mesh(new THREE.BoxGeometry(1.35,.18,.18),black);bumper.position.set(0,.36,1.28);g.add(bumper);
+ return g;
+}
+function init(){
+ scene=new THREE.Scene();scene.background=new THREE.Color(0x87ceeb);scene.fog=new THREE.Fog(0x87ceeb,35,145);
+ camera=new THREE.PerspectiveCamera(62,innerWidth/innerHeight,.1,220);camera.position.set(0,7.5,13);camera.lookAt(0,0,-12);
+ renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;document.body.appendChild(renderer.domElement);
+ scene.add(new THREE.HemisphereLight(0xffffff,0x477044,2));
+ let sun=new THREE.DirectionalLight(0xffffff,1.7);sun.position.set(-8,15,8);scene.add(sun);
+ box(200,.1,220,grass,0,-.16,-80);
+ road=box(12,.15,220,asphalt,0,-.05,-80);
+ for(let x of [-2,2])for(let z=-180;z<30;z+=12){let l=box(.16,.025,5,white,x,.04,z);lines.push(l)}
+ for(let x of [-6.2,6.2]){box(.3,.25,220,white,x,.05,-80)}
+ for(let z=-190;z<30;z+=13){for(let x of [-9,9]){let trunk=box(.45,1.5,.45,mat(0x70452b),x,.65,z);let top=new THREE.Mesh(new THREE.ConeGeometry(1.5,3,7),mat(0x176b35));top.position.set(x,2.8,z);scene.add(top);trees.push(trunk,top)}}
+ player=makeCar(0xff3030);player.position.set(0,0,6);scene.add(player);
+ for(let i=0;i<4;i++)addTraffic(-35-i*34);
+ window.addEventListener('resize',resize);
+}
+function addTraffic(z){let lane=[-4,0,4][Math.floor(Math.random()*3)];let c=makeCar([0x2196f3,0xffc107,0x9c27b0,0xffffff][Math.floor(Math.random()*4)]);c.position.set(lane,0,z);scene.add(c);traffic.push(c)}
+function resize(){if(!renderer)return;camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)}
+function end(){running=false;overlay.style.display='flex';overlay.querySelector('h1').textContent='🏁 RACE OVER';overlay.querySelector('p').textContent='Your score: '+Math.floor(score)+' • Phir se try karo!';document.getElementById('start').textContent='PLAY AGAIN'}
+function frame(t){
+ requestAnimationFrame(frame);if(!running){renderer.render(scene,camera);return}
+ let dt=Math.min((t-last)/1000||0,.04);last=t;score+=dt*10;speed=Math.min(22+score*.045,58);
+ scoreEl.textContent=Math.floor(score);speedEl.textContent=Math.floor(speed);
+ player.position.x=THREE.MathUtils.clamp(player.position.x+steer*dt*9,-4.6,4.6);
+ player.rotation.z=THREE.MathUtils.lerp(player.rotation.z,-steer*.12,.12);
+ for(let l of lines){l.position.z+=speed*dt;if(l.position.z>18)l.position.z-=216}
+ for(let o of traffic){o.position.z+=speed*dt*.82;if(o.position.z>18){o.position.z=-150-Math.random()*50;o.position.x=[-4,0,4][Math.floor(Math.random()*3)]}
+ if(Math.abs(o.position.z-player.position.z)<2.2&&Math.abs(o.position.x-player.position.x)<1.25){end();break}}
+ spawn+=dt;if(spawn>1.5&&traffic.length<7){addTraffic(-190);spawn=0}
+ camera.position.x=THREE.MathUtils.lerp(camera.position.x,player.position.x*.22,.04);camera.lookAt(player.position.x*.18,0,-12);
+ renderer.render(scene,camera);
+}
+function press(v){steer=v}
+function bind(id,v){let el=document.getElementById(id);el.addEventListener('pointerdown',e=>{e.preventDefault();press(v)});el.addEventListener('pointerup',()=>press(0));el.addEventListener('pointerleave',()=>press(0));el.addEventListener('pointercancel',()=>press(0))}
+bind('left',-1);bind('right',1);
+addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='a')press(-1);if(e.key==='ArrowRight'||e.key==='d')press(1)});
+addEventListener('keyup',e=>{if(['ArrowLeft','ArrowRight','a','d'].includes(e.key))press(0)});
+document.getElementById('start').onclick=()=>{if(!renderer)init();traffic.forEach(o=>scene.remove(o));traffic=[];score=0;speed=22;spawn=0;player.position.x=0;for(let i=0;i<4;i++)addTraffic(-35-i*34);overlay.style.display='none';overlay.querySelector('h1').textContent='🏎️ 3D CAR RACER';last=performance.now();running=true};
+init();requestAnimationFrame(frame);
+})();
+</script>
+</body></html>
